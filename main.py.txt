@@ -1,0 +1,185 @@
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import pyttsx3
+import time
+
+# Load model
+model = YOLO("yolov8n.pt")
+names = model.names
+
+# Voice system
+engine = pyttsx3.init()
+
+def speak_alert(message):
+    engine.say(message)
+    engine.runAndWait()
+
+last_alert_time = 0
+alert_cooldown = 5
+
+# Camera
+cap = cv2.VideoCapture(0)
+
+# Map settings
+map_width, map_height = 600, 600
+
+# Heatmap
+heatmap = np.zeros((map_height, map_width), dtype=np.float32)
+
+# Tracking
+tracked_survivors = {}
+next_id = 1
+max_distance = 80
+max_lost_frames = 10
+
+# Track lost frames
+lost_counter = {}
+
+def get_distance(p1, p2):
+    return np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+
+while True:
+
+    ret, frame = cap.read()
+    if not ret:
+        print("Camera error")
+        break
+
+    survivor_count = 0
+    danger_count = 0
+
+    map_view = 255 * np.ones((map_height, map_width, 3), dtype="uint8")
+
+    results = model(frame)
+
+    current_centers = []
+
+    for r in results:
+        for box in r.boxes:
+
+            cls = int(box.cls)
+            label = names[cls]
+            confidence = float(box.conf)
+
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+            center_x = (x1 + x2) // 2
+            center_y = (y1 + y2) // 2
+
+            if label == "person" and confidence > 0.7:
+
+                survivor_count += 1
+                current_centers.append((center_x, center_y))
+
+                assigned_id = None
+
+                # Match with existing IDs
+                for sid, prev_center in tracked_survivors.items():
+                    if get_distance(prev_center, (center_x, center_y)) < max_distance:
+                        assigned_id = sid
+                        tracked_survivors[sid] = (center_x, center_y)
+                        lost_counter[sid] = 0
+                        break
+
+                # New ID
+                if assigned_id is None:
+                    assigned_id = next_id
+                    tracked_survivors[next_id] = (center_x, center_y)
+                    lost_counter[next_id] = 0
+                    next_id += 1
+
+                # Draw box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"ID {assigned_id}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                # Distance estimation
+                box_width = max(1, (x2 - x1))
+                distance = 5000 / box_width
+
+                cv2.putText(frame, f"Dist {distance:.1f}",
+                            (x1, y2 + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (255, 255, 0), 2)
+
+                # Voice alert
+                current_time = time.time()
+                if current_time - last_alert_time > alert_cooldown:
+                    speak_alert("Survivor detected")
+                    last_alert_time = current_time
+
+                # Map coordinates
+                map_x = int(center_x / frame.shape[1] * map_width)
+                map_y = int(center_y / frame.shape[0] * map_height)
+
+                cv2.circle(map_view, (map_x, map_y), 6, (0, 0, 255), -1)
+
+                # Heatmap update
+                heatmap[map_y, map_x] += 1
+
+            elif label in ["car", "truck"]:
+
+                danger_count += 1
+
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.putText(frame, "Obstacle", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+    # Remove lost IDs
+    for sid in list(tracked_survivors.keys()):
+        if sid not in [id for id in tracked_survivors]:
+            lost_counter[sid] += 1
+            if lost_counter[sid] > max_lost_frames:
+                del tracked_survivors[sid]
+                del lost_counter[sid]
+
+    # Heatmap decay (IMPORTANT FIX)
+    heatmap *= 0.95
+
+    heatmap_blur = cv2.GaussianBlur(heatmap, (25, 25), 0)
+    heatmap_norm = cv2.normalize(heatmap_blur, None, 0, 255, cv2.NORM_MINMAX)
+    heatmap_color = cv2.applyColorMap(heatmap_norm.astype(np.uint8),
+                                      cv2.COLORMAP_JET)
+
+    # Risk level
+    if survivor_count > 0 and danger_count > 0:
+        risk = "HIGH RISK"
+    elif survivor_count > 0:
+        risk = "SURVIVOR DETECTED"
+    else:
+        risk = "NO SURVIVOR"
+
+    # Dashboard
+    cv2.putText(frame, f"Survivors: {survivor_count}", (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.putText(frame, f"Dangers: {danger_count}", (20, 80),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.putText(frame, f"Risk: {risk}", (20, 120),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+    # Show windows
+    cv2.imshow("AI Rescue Vision", frame)
+    cv2.imshow("Survivor Map", map_view)
+    cv2.imshow("Rescue Heatmap", heatmap_color)
+
+    if cv2.waitKey(1) & 0xFF == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
+
+
+
+
+
+
+
+
+
+
+
+
