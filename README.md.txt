@@ -26,12 +26,7 @@ This project is a real-time AI-based survivor detection system designed for disa
 - Faster response time
 - Better detection consistency
 
----
 
-##  Sample Output
-(Add your images here)
-
----
 
 ##  How to Run
 ```bash
