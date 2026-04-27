@@ -35,7 +35,7 @@ This system uses computer vision (YOLOv8) to:
 
 ##  Demo
  Heatmap Visualization
-[Heatmap Sample](Heatmap Sample.png)
+![Heatmap Sample](Heatmap Sample.png)
 
 
 
