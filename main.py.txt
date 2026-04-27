@@ -134,7 +134,7 @@ while True:
                 del tracked_survivors[sid]
                 del lost_counter[sid]
 
-    # Heatmap decay (IMPORTANT FIX)
+    # Heatmap decay 
     heatmap *= 0.95
 
     heatmap_blur = cv2.GaussianBlur(heatmap, (25, 25), 0)
